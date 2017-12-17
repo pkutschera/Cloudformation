@@ -1,0 +1,206 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Setup of simple web server",
+  "Metadata": {},
+  "Mappings": {
+    "RegionMap": {
+      "eu-central-1": {
+        "64": "ami-df8406b0"
+      }
+    }
+  },
+  "Conditions": {},
+  "Resources": {
+    "MyVPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": "10.200.0.0/16",
+        "EnableDnsHostnames" : true,
+        "EnableDnsSupport": true,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "MyVPC"
+          }
+        ]
+      }
+    },
+    "MyIGW": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "MyIGW"
+          }
+        ]
+      }
+    },
+    "AttachVPCToIGW": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {
+          "Ref": "MyVPC"
+        },
+        "InternetGatewayId": {
+          "Ref": "MyIGW"
+        }
+      }
+    },
+    "MyVPCRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "MyVPC"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "MyVPCRouteTable"
+          }
+        ]
+      }
+    },
+    "RouteEverythingToIGW": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "MyVPCRouteTable"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "MyIGW"
+        }
+      }
+    },
+    "MyPublicSubnet": {
+      "Type": "AWS::EC2::Subnet",
+      "DependsOn" : "AttachVPCToIGW",
+      "Properties": {
+        "VpcId": {
+          "Ref": "MyVPC"
+        },
+        "CidrBlock": "10.200.10.0/24",
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "MyPublicSubnet"
+          }
+        ]
+      }
+    },
+    "MyVPCRouteTableToMyPublicSubnet": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "MyPublicSubnet"
+        },
+        "RouteTableId": {
+          "Ref": "MyVPCRouteTable"
+        }
+      }
+    },
+    "InstanceSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Allow http to client host",
+        "VpcId": { "Ref":  "MyVPC" },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "CidrIp": "0.0.0.0/0",
+            "FromPort": "80",
+            "ToPort": "80"
+          },
+          {
+            "IpProtocol": "tcp",
+            "CidrIp": "0.0.0.0/0",
+            "FromPort": "22",
+            "ToPort": "22"
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "CidrIp": "0.0.0.0/0",
+            "FromPort": "80",
+            "ToPort": "80"
+          },
+          {
+            "IpProtocol": "tcp",
+            "CidrIp": "0.0.0.0/0",
+            "FromPort": "22",
+            "ToPort": "22"
+          }
+        ]
+      }
+    },
+    "MyWebServer": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "KeyName": "pkt-playground",
+        "DisableApiTermination": false,
+        "ImageId": {
+          "Fn::FindInMap": [
+            "RegionMap",
+            {
+              "Ref": "AWS::Region"
+            },
+            "64"
+          ]
+        },
+        "InstanceType": "t2.micro",
+        "Monitoring": true,
+        "SecurityGroupIds": [{ "Ref" : "InstanceSecurityGroup" }],
+        "SubnetId": {
+          "Ref": "MyPublicSubnet"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "MyWebServer"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -ex\n",
+                "sudo wget http://nginx.org/keys/nginx_signing.key\n",
+                "sudo apt-key add nginx_signing.key\n",
+                "cd /etc/apt\n",
+                "echo \"deb http://nginx.org/packages/ubuntu xenial nginx\" | sudo tee -a /etc/apt/sources.list\n",
+                "echo \"deb-src http://nginx.org/packages/ubuntu xenial nginx\" | sudo tee -a /etc/apt/sources.list\n",
+                "sudo apt-get update\n",
+                "sudo apt-get -y install nginx\n",
+                "sudo service nginx start\n"
+              ]
+            ]
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "PublicIp": {
+      "Value": {
+        "Fn::GetAtt": [
+          "MyWebServer",
+          "PublicIp"
+        ]
+      },
+      "Description": "MyWebServer's PublicIp"
+    },
+    "PublicDnsName": {
+      "Value": {
+        "Fn::GetAtt": [
+          "MyWebServer",
+          "PublicDnsName"
+        ]
+      },
+      "Description": "MyWebServer's PublicDnsName"
+    }
+  }
+}
